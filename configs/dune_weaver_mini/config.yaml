@@ -3,7 +3,7 @@ name: Dune Weaver Mini ThetaRho
 meta: DW Mini fork - 28BYJ-48 + ULN2003, OTA-slot pattern cache
 hostname: DWMINI
 # Pins, steps/mm and travel come from the table's original FluidNC 3.0
-# config (backups/board-config-2026-11-20.yaml). Kinematics reproduce the
+# config (the 2025-02-11 stock Mini config). Kinematics reproduce the
 # legacy host's Mini math: x 100/(2pi*2) mm per rad = 50 mm/rev,
 # y 100/3.7 = 27.027 mm of rho, coupling subtracted (invert_coupling).
 stepping:
