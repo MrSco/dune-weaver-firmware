@@ -1814,6 +1814,16 @@ namespace WebUI {
                         uploadCheck();
                         return;
                     }
+                    if (sd_firmware_pending()) {
+                        // DW Mini fork: the other slot is still the rollback
+                        // image for this unconfirmed firmware; overwriting it
+                        // would leave nothing to fall back to.
+                        _upload_status = UploadStatus::FAILED;
+                        log_info("Update rejected - running firmware not confirmed yet");
+                        pushError(ESP_ERROR_UPLOAD, "Update rejected, firmware not confirmed yet");
+                        uploadCheck();
+                        return;
+                    }
                     log_info("Update Firmware");
                     // DW Mini fork: the update is about to overwrite the spare
                     // OTA slot, which holds the pattern cache on SD-less boards.
@@ -2398,6 +2408,7 @@ namespace WebUI {
 
     void Web_Server::poll() {
         static uint32_t start_time = millis();
+        sd_cache_poll();  // DW Mini fork: confirm a pending firmware once healthy
         // Follow the live radio mode rather than the boot-time one: the WiFi
         // module can raise (and drop) a recovery AP at any point while a home
         // network is down, and AP_STA is that AP with the station still

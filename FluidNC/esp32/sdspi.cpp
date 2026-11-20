@@ -18,6 +18,7 @@
 #include "esp_partition.h"
 #include "esp_log.h"
 #include "wdt.h"            // disable_core0_WDT
+#include "esp_timer.h"      // esp_timer_get_time
 
 #define CHECK_EXECUTE_RESULT(err, str)                                                                                                     \
     do {                                                                                                                                   \
@@ -163,7 +164,48 @@ static esp_err_t cache_register(const esp_partition_t* part) {
     return esp_vfs_littlefs_register(&conf);
 }
 
+// ---- Firmware confirmation (DW_MINI builds) ---------------------------------
+// The Arduino core marks a freshly updated image valid the moment it boots
+// unless verifyRollbackLater() says otherwise.  On the Mini the spare slot is
+// both the rollback image AND the pattern cache, so a new image must not
+// format it until it has proven itself: it stays ESP_OTA_IMG_PENDING_VERIFY
+// (a crash or reboot sends the bootloader back to the previous firmware)
+// until sd_cache_poll() confirms it after a healthy uptime.
+#ifdef DW_MINI
+extern "C" bool verifyRollbackLater() {
+    return true;
+}
+#endif
+
+static constexpr int64_t kConfirmAfterUs = 90LL * 1000 * 1000;  // 90 s serving
+
+bool sd_firmware_pending() {
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    esp_ota_img_states_t   state;
+    return running && esp_ota_get_state_partition(running, &state) == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY;
+}
+
+void sd_cache_poll() {
+    static bool checked = false;
+    if (checked || esp_timer_get_time() < kConfirmAfterUs) {
+        return;
+    }
+    checked = true;
+    if (sd_firmware_pending()) {
+        if (esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {
+            log_info("Firmware confirmed after a healthy start; previous image released");
+        } else {
+            log_error("Could not confirm firmware; it will roll back on the next restart");
+        }
+    }
+}
+
 static std::error_code cache_mount() {
+    if (sd_firmware_pending()) {
+        // The spare slot still holds the previous firmware - the rollback target.
+        log_debug("Pattern cache unavailable until this firmware is confirmed");
+        return esp_error::make_error_code(ESP_ERR_INVALID_STATE);
+    }
     if (s_cache_locked) {
         log_debug("Pattern cache locked for firmware update; reboot to use it");
         return esp_error::make_error_code(ESP_ERR_INVALID_STATE);

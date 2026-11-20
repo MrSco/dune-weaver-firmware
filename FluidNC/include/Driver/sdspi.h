@@ -28,3 +28,12 @@ void sd_cache_release();
 
 // Total/used bytes of the cache filesystem; false if not mounted.
 bool sd_cache_stats(uint64_t& total, uint64_t& used);
+
+// True while the running image is a freshly updated one that has not been
+// confirmed yet (bootloader rollback still armed).  The spare slot then holds
+// the previous firmware, so it is neither a cache nor writable.
+bool sd_firmware_pending();
+
+// Call periodically from a healthy, serving firmware (Web_Server::poll):
+// confirms a pending image after a healthy uptime.  Cheap no-op afterwards.
+void sd_cache_poll();
