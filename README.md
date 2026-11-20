@@ -6,6 +6,57 @@ Raspberry Pi, no separate WLED controller. It is a fork of
 [**FluidNC**](https://github.com/bdring/FluidNC) **v3.9.5** with the sand-table host's
 features ported down into the firmware itself.
 
+## Dune Weaver Mini (this fork)
+
+This fork also runs the **free 3D-printed
+[DW Mini](https://makerworld.com/en/models/896314-mini-dune-weaver-not-your-typical-marble-run)**:
+a bare ESP32 with 4 MB flash, two 28BYJ-48 motors on ULN2003 boards, and no SD
+card or limit switches. The official firmware no longer supports this hardware, and
+this fork is not supported by the Dune Weaver team. What it adds:
+
+- **Unipolar stepper driver** (`motor: unipolar:`): a backport of FluidNC
+  [PR #1797](https://github.com/bdring/FluidNC/pull/1797) that drives the ULN2003
+  phase pins directly.
+- **Pattern cache in flash instead of an SD card.** The Mini keeps two firmware
+  slots for over-the-air updates; the slot that is not running holds a LittleFS
+  pattern cache (about 1.9 MB). Patterns are stored zlib-compressed (about 4x
+  smaller) and decompressed while playing.
+- **Safe updates.** A new firmware stays on probation for its first 90 seconds
+  after starting: if it crashes or restarts in that time, the board goes back to
+  the previous firmware. The cache is unavailable during probation, then rebuilt
+  empty (the host re-uploads patterns as they are needed).
+- **Mini config**
+  ([`configs/dune_weaver_mini/config.yaml`](configs/dune_weaver_mini/config.yaml)):
+  the stock Mini pins and steps/mm, ThetaRho kinematics, and crash homing at
+  startup.
+
+The table only holds the patterns it is about to play, so it needs the host app
+from the companion fork
+[MrSco/dune-weaver-pi](https://github.com/MrSco/dune-weaver-pi) (branch
+`mini-cache`), which keeps the full library and uploads patterns on demand. It
+runs on a Raspberry Pi or as a Home Assistant add-on. A playlist must fit in the
+cache (typically 15–25 patterns).
+
+### Installing on a Mini
+
+1. **Back up the board first** (the only way back to the old firmware), with the
+   table connected over USB:
+   `esptool --chip esp32 read-flash 0 0x400000 mini-backup.bin`
+2. Download `dw-mini-full-4MB.bin` from the
+   [latest release](https://github.com/MrSco/dune-weaver-firmware/releases/latest)
+   and flash it: `esptool --chip esp32 write-flash 0x0 dw-mini-full-4MB.bin`
+3. Join the table's **DuneWeaver-XXXX** Wi-Fi hotspot (password `12345678`), open
+   **http://192.168.0.1** and choose your home Wi-Fi. The table restarts and
+   appears as **DWMINI.local**.
+4. Point the host app at it (it also finds the table on its own over mDNS).
+
+Later releases install over Wi-Fi from the host app's settings. To build it
+yourself, flash with `pio run -e sandtable_mini -t upload`, then copy
+`configs/dune_weaver_mini/config.yaml` and `FluidNC/data/favicon.ico` into an
+empty folder and upload that as the board's file system:
+`PLATFORMIO_DATA_DIR=<folder> pio run -e sandtable_mini -t uploadfs`
+(the same steps as [`release-mini.yml`](.github/workflows/release-mini.yml)).
+
 ## What it does
 
 A Dune Weaver normally splits its brain across a host (Raspberry Pi running the
