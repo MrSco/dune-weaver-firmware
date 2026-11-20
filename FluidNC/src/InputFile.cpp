@@ -9,9 +9,19 @@
 #include "SandStatus.h"              // executed_percent()
 
 #include <esp_timer.h>               // esp_timer_get_time() for the job start stamp
+#include <new>                       // std::nothrow
 
 InputFile::InputFile(const char* defaultFs, const char* path) :
-    FileStream(path, "r", defaultFs), _start_us(esp_timer_get_time()) {}
+    FileStream(path, "r", defaultFs), _start_us(esp_timer_get_time()) {
+    // DW Mini fork: a zlib-compressed pattern is read through the inflater.
+    uint32_t window;
+    if (PatternInflate::sniff(*this, window)) {
+        _inflate.reset(new (std::nothrow) PatternInflate(window));
+        if (!_inflate || !_inflate->ok()) {
+            _pending_error = Error::FsFailedRead;
+        }
+    }
+}
 /*
   Read a line from the file
   Returns Error::Ok if a line was read, even if the line was empty.
@@ -21,7 +31,7 @@ InputFile::InputFile(const char* defaultFs, const char* path) :
 Error InputFile::readLine(char* line, int maxlen) {
     int len = 0;
     int c;
-    while ((c = read()) >= 0) {
+    while ((c = nextChar()) >= 0) {
         // Reserve a slot for the terminator: with len == maxlen the EOF exit
         // below would write line[maxlen], one past a maxlen-sized buffer
         // (callers pass sizeof(buffer)).
@@ -41,6 +51,9 @@ Error InputFile::readLine(char* line, int maxlen) {
         line[len++] = c;
     }
     line[len] = '\0';
+    if (c < 0 && _inflate && _inflate->failed()) {
+        return Error::FsFailedRead;  // corrupt or truncated compressed pattern
+    }
     return len || c >= 0 ? Error::Ok : Error::Eof;
 }
 

@@ -17,6 +17,10 @@
 #include "Leds.h"                  // Still Sands LED-off during quiet hours
 #include "FluidPath.h"
 #include "TimeKeeper.h"            // Clock::isSet
+#include "PatternInflate.h"        // DW Mini fork: compressed patterns
+
+#include <memory>
+#include <new>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -631,7 +635,16 @@ float Playlist::firstRho(const std::string& sdpath) {
     try {
         FileStream f(sdpath.c_str(), "r", "sd");
         int        c;
-        while ((c = f.read()) >= 0 && content.size() < 4096) {
+        // DW Mini fork: compressed patterns are peeked through the inflater.
+        uint32_t                        window;
+        std::unique_ptr<PatternInflate> inflate;
+        if (PatternInflate::sniff(f, window)) {
+            inflate.reset(new (std::nothrow) PatternInflate(window));
+            if (!inflate || !inflate->ok()) {
+                return -1.0f;
+            }
+        }
+        while ((c = inflate ? inflate->get(f) : f.read()) >= 0 && content.size() < 4096) {
             content += static_cast<char>(c);
         }
     } catch (std::filesystem::filesystem_error const&) {

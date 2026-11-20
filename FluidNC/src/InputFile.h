@@ -16,8 +16,10 @@
 #include "WebUI/Authentication.h"
 #include "FileStream.h"  // FileStream and Channel
 #include "Error.h"
+#include "PatternInflate.h"  // DW Mini fork: zlib-compressed patterns
 
 #include <cstdint>
+#include <memory>
 
 class InputFile : public FileStream {
 private:
@@ -30,6 +32,10 @@ private:
     // A fresh InputFile per run (and per pre-execution clear) makes this reset
     // correctly on every pattern, including back-to-back repeats of the same file.
     int64_t _start_us = 0;
+
+    // DW Mini fork: set when the file is zlib-compressed (see PatternInflate.h).
+    std::unique_ptr<PatternInflate> _inflate;
+    int nextChar() { return _inflate ? _inflate->get(*this) : read(); }
 
 public:
     // fsname is the default file system on which the file is located, in case the path does not specify
