@@ -44,6 +44,10 @@ private:
 
     uint32_t _frequency_hz = 8000000;  // Set to nonzero to override the default
 
+    // DW Mini fork: with no cs_pin, serve /sd from a LittleFS pattern cache in
+    // the spare OTA slot (see Driver/sdspi.h).
+    bool _ota_cache = false;
+
 public:
     SDCard();
     SDCard(const SDCard&) = delete;
@@ -62,6 +66,7 @@ public:
         handler.item("cs_pin", _cs);
         handler.item("card_detect_pin", _cardDetect);
         handler.item("frequency_hz", _frequency_hz, 400000, 20000000);
+        handler.item("ota_cache", _ota_cache);
     }
 
     ~SDCard();

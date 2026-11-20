@@ -13,6 +13,12 @@
 #include "Driver/sdspi.h"
 #include "src/Config.h"
 
+#include "esp_littlefs.h"   // OTA-slot pattern cache
+#include "esp_ota_ops.h"    // esp_ota_get_next_update_partition
+#include "esp_partition.h"
+#include "esp_log.h"
+#include "wdt.h"            // disable_core0_WDT
+
 #define CHECK_EXECUTE_RESULT(err, str)                                                                                                     \
     do {                                                                                                                                   \
         if ((err) != ESP_OK) {                                                                                                             \
@@ -136,10 +142,98 @@ bool init_spi_bus(int mosi_pin, int miso_pin, int clk_pin) {
 }
 #endif
 
+// ---- DW Mini fork: OTA-slot pattern cache (see Driver/sdspi.h) ----------
+static bool                   s_ota_cache    = false;
+static bool                   s_cache_locked = false;
+static const esp_partition_t* s_cache_part   = nullptr;
+
+void sd_set_ota_cache(bool enable) {
+    s_ota_cache = enable;
+}
+bool sd_is_ota_cache() {
+    return s_ota_cache;
+}
+
+static esp_err_t cache_register(const esp_partition_t* part) {
+    esp_vfs_littlefs_conf_t conf = {};
+    conf.base_path               = base_path;
+    conf.partition_label         = NULL;
+    conf.partition               = part;
+    conf.format_if_mount_failed  = false;
+    return esp_vfs_littlefs_register(&conf);
+}
+
+static std::error_code cache_mount() {
+    if (s_cache_locked) {
+        log_debug("Pattern cache locked for firmware update; reboot to use it");
+        return esp_error::make_error_code(ESP_ERR_INVALID_STATE);
+    }
+    if (s_cache_part && esp_littlefs_partition_mounted(s_cache_part)) {
+        return {};
+    }
+    const esp_partition_t* part = esp_ota_get_next_update_partition(NULL);
+    if (!part) {
+        log_error("Pattern cache: no spare OTA slot (partition table needs ota_0 + ota_1)");
+        return esp_error::make_error_code(ESP_ERR_NOT_FOUND);
+    }
+    esp_log_level_set("esp_littlefs", ESP_LOG_NONE);
+    esp_err_t err = cache_register(part);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        // First boot, or the slot still holds the previous firmware image after
+        // an update: (re)create the cache.  Erasing ~1.9 MB takes several
+        // seconds, so keep the idle watchdog out of it, as littlefs_format() does.
+        log_info("Pattern cache: formatting " << part->label << " (" << part->size / 1024 << " KB)");
+        disable_core0_WDT();
+        err = esp_littlefs_format_partition(part);
+        enable_core0_WDT();
+        if (err == ESP_OK) {
+            err = cache_register(part);
+        }
+    }
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        log_error("Pattern cache mount failed code " << to_hex(err));
+        return esp_error::make_error_code(err);
+    }
+    s_cache_part = part;
+    return {};
+}
+
+static void cache_unmount() {
+    if (s_cache_part && esp_littlefs_partition_mounted(s_cache_part)) {
+        esp_vfs_littlefs_unregister_partition(s_cache_part);
+    }
+}
+
+void sd_cache_release() {
+    if (!s_ota_cache) {
+        return;
+    }
+    s_cache_locked = true;
+    cache_unmount();
+    log_info("Pattern cache released for firmware update");
+}
+
+bool sd_cache_stats(uint64_t& total, uint64_t& used) {
+    if (!s_ota_cache || !s_cache_part || !esp_littlefs_partition_mounted(s_cache_part)) {
+        return false;
+    }
+    size_t t, u;
+    if (esp_littlefs_partition_info(s_cache_part, &t, &u) != ESP_OK) {
+        return false;
+    }
+    total = t;
+    used  = u;
+    return true;
+}
+// ---- end OTA-slot pattern cache --------------------------------------------
+
 // adapted from vfs_fat_sdmmc.c:esp_vfs_fat_sdmmc_mount()
 // cppcheck-suppress unusedFunction
 std::error_code sd_mount(int max_files) {
     log_verbose("Mount_sd");
+    if (s_ota_cache) {
+        return cache_mount();
+    }
     esp_err_t err;
 
     // mount_prepare_mem() ... minus the strdup of base_path
@@ -179,6 +273,10 @@ cleanup:
 
 // cppcheck-suppress unusedFunction
 void sd_unmount() {
+    if (s_ota_cache) {
+        cache_unmount();
+        return;
+    }
     BYTE pdrv = ff_diskio_get_pdrv_card(card);
     if (pdrv == 0xff) {
         return;

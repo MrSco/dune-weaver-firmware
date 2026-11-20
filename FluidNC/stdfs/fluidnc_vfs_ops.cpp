@@ -6,6 +6,7 @@
 #include "ff.h"
 #include "esp_littlefs.h"
 #include "Driver/littlefs.h"
+#include "Driver/sdspi.h"  // OTA-slot pattern cache
 
 bool isSPIFFS(const char* mountpoint) {
     return !strcmp(mountpoint, "spiffs");
@@ -18,6 +19,9 @@ bool isLittleFS(const char* mountpoint) {
 }
 // cppcheck-suppress unusedFunction
 bool fluidnc_vfs_stats(const char* mountpoint, uint64_t& total, uint64_t& used) {
+    if (isSD(mountpoint) && sd_is_ota_cache()) {
+        return sd_cache_stats(total, used);
+    }
     if (isSD(mountpoint)) {
         FATFS* fsinfo;
         DWORD  fre_clust;

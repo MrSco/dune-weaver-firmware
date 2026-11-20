@@ -39,6 +39,7 @@
 #include "src/HttpRange.h"   // ranged /sd/ file GETs (preview-shard sync)
 #include "src/Job.h"         // Job::active() to gate OTA while a pattern runs
 #include "src/Report.h"      // git_info for the /updatefw response
+#include "Driver/sdspi.h"     // sd_cache_release() before an OTA write
 #include "src/SettingsDefinitions.h"  // sand_password ($Sand/Password API lock)
 #include <sdkconfig.h>                // CONFIG_IDF_TARGET for the /updatefw "mcu"
 #include <esp_task_wdt.h>             // feed the WDT during long /sd/ file streams
@@ -1814,6 +1815,9 @@ namespace WebUI {
                         return;
                     }
                     log_info("Update Firmware");
+                    // DW Mini fork: the update is about to overwrite the spare
+                    // OTA slot, which holds the pattern cache on SD-less boards.
+                    sd_cache_release();
                     _upload_status = UploadStatus::ONGOING;
                     std::string sizeargname(upload.filename.c_str());
                     sizeargname += "S";

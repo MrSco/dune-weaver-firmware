@@ -19,6 +19,13 @@ void SDCard::init() {
     pinnum_t    csPin;
     int         csFallback;
 
+    if (_ota_cache && _cs.undefined()) {
+        sd_set_ota_cache(true);
+        config_ok = true;
+        log_info("SD: pattern cache in spare OTA slot (no card)");
+        return;
+    }
+
     if (_cs.defined()) {
         if (!config->_spi->defined()) {
             log_error("SD needs SPI defined");
