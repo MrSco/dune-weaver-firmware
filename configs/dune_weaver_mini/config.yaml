@@ -76,9 +76,9 @@ report_inches: false
 planner_blocks: 16
 playlist:
   folder: /playlists
-  clear_from_in: /patterns/clear_from_in_mini.thr
-  clear_from_out: /patterns/clear_from_out_mini.thr
-  clear_sideway: /patterns/clear_sideway_mini.thr
+  clear_from_in: /patterns/clear_from_in.thr
+  clear_from_out: /patterns/clear_from_out.thr
+  clear_sideway: /patterns/clear_sideway.thr
 time:
   ntp: true
   server: pool.ntp.org
