@@ -65,6 +65,12 @@ label input{width:auto;margin-right:6px}
  <p class="dim">If the <span id="apname1">DuneWeaver</span> hotspot comes back in about a minute, the join failed &mdash; reconnect to it to see why and try again.</p>
 </div>
 
+<div id="v-back" class="view">
+ <h1>Table is back online</h1>
+ <p>It restarted and rejoined <b id="bk"></b>. You can close this page.</p>
+ <p class="dim">This page only sets up Wi-Fi. Control the table from the Dune Weaver app.</p>
+</div>
+
 <div id="v-standalone" class="view">
  <h1>Hotspot mode is on</h1>
  <p>You can close this window. Keep your phone on the <b id="apname2">DuneWeaver</b> network and open the Dune Weaver app to control your table.</p>
@@ -76,6 +82,11 @@ label input{width:auto;margin-right:6px}
 <script>
 function $(i){return document.getElementById(i)}
 var scanT=null;
+// DW Mini fork: true when this page was opened over the home network (the
+// table is a Wi-Fi client), not over its own hotspot.  Then the phone does
+// not lose the connection on save, so the page can wait for the table to
+// come back instead of telling the user to rejoin Wi-Fi.
+var viaSta=false;
 function show(v){
  var a=document.querySelectorAll('.view');
  for(var i=0;i<a.length;i++)a[i].className='view';
@@ -90,7 +101,11 @@ fetch('/wifi_status').then(function(r){return r.json()}).then(function(s){
   $('fail').textContent='Couldn’t join “'+s.sta_ssid+'”: '+s.fail;
  }
  if(s.mode=='standalone')$('stanote').textContent='Standalone hotspot mode is currently active.';
- if(s.mode=='sta')$('stanote').textContent='Currently connected to “'+s.sta_ssid+'”.';
+ if(s.mode=='sta'){
+  viaSta=location.hostname!='192.168.0.1';
+  $('stanote').textContent='Currently connected to “'+s.sta_ssid+'”.'+
+   (viaSta?' Saving restarts the table and stops any pattern that is drawing.':'');
+ }
 }).catch(function(){});
 function scan(fresh){
  if(scanT){clearTimeout(scanT);scanT=null}
@@ -127,6 +142,22 @@ function save(){
  if(!s){alert('Enter a network name');return}
  if(p.length<8){alert('The password must be at least 8 characters. Open networks aren’t supported.');return}
  $('sv').textContent=s;show('saving');postSave(s,p);
+ if(viaSta){
+  $('v-saving').querySelectorAll('p')[0].textContent='The table is restarting and joining '+s+'. This page will update when it is back (about 30 seconds).';
+  $('v-saving').querySelectorAll('p')[1].style.display='none';
+  setTimeout(function(){waitBack(s,0)},8000);
+ }
+}
+// Poll until the restarted table answers again on the home network.  If it
+// never does, it most likely could not join and is back on its hotspot.
+function waitBack(s,n){
+ fetch('/wifi_status',{cache:'no-store'}).then(function(r){return r.json()}).then(function(st){
+  if(st.mode=='sta'){$('bk').textContent=st.sta_ssid||s;show('back');return}
+  setTimeout(function(){waitBack(s,n+1)},3000);
+ }).catch(function(){
+  if(n<30){setTimeout(function(){waitBack(s,n+1)},3000);return}
+  $('v-saving').querySelectorAll('p')[0].textContent='The table has not come back on '+s+'. It may have failed to join: look for its DuneWeaver hotspot and reconnect to it to see why.';
+ });
 }
 function postSave(s,p){
  var b=new URLSearchParams();b.append('ssid',s);b.append('password',p);
