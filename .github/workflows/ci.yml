@@ -60,6 +60,8 @@ jobs:
         run: pio run -e sandtable
       - name: Build sandtable firmware (ESP32-S3 / MKS DLC32 MAX)
         run: pio run -e sandtable_s3
+      - name: Build sandtable firmware (Dune Weaver Mini / bare ESP32)
+        run: pio run -e sandtable_mini
       - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:

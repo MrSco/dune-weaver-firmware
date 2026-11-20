@@ -1,0 +1,97 @@
+name: Release (Dune Weaver Mini)
+
+# Cut a Dune Weaver Mini firmware release when a `v*-mini.*` tag is pushed:
+#
+#   git tag -a v0.2.6-mini.2 -m "Mini firmware v0.2.6-mini.2" -m "<changelog>"
+#   git push mrsco v0.2.6-mini.2
+#
+# Builds the `sandtable_mini` env (bare ESP32, 28BYJ-48 + ULN2003, OTA-slot
+# pattern cache) and publishes:
+#   firmware.bin          app image: what the host's one-click OTA update
+#                         flashes (it looks for exactly this asset name)
+#   dw-mini-full-4MB.bin  bootloader + partitions + otadata + app + littlefs
+#                         (Mini config.yaml) merged for a first USB flash at 0x0
+#   bootloader.bin, partitions.bin, boot_app0.bin, littlefs.bin  the parts
+# Published as a normal (not pre-) release so /releases/latest - what the
+# host's update check follows - points at it.
+
+on:
+  push:
+    tags: ["v*-mini.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v*-mini.* tag to (re)build
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: Resolve the release tag
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          # git-version.py bakes this into the firmware's version string.
+          echo "DW_RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "releasing $TAG"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install PlatformIO and esptool
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt esptool
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-sandtable-mini-${{ runner.os }}
+      - name: Build firmware and Mini filesystem image
+        run: |
+          pio run -e sandtable_mini
+          STAGE="$RUNNER_TEMP/fsdata"
+          mkdir -p "$STAGE"
+          cp configs/dune_weaver_mini/config.yaml FluidNC/data/favicon.ico "$STAGE/"
+          PLATFORMIO_DATA_DIR="$STAGE" pio run -e sandtable_mini -t buildfs
+      - name: Stage release assets
+        run: |
+          B=.pio/build/sandtable_mini
+          OUT="$RUNNER_TEMP/release"
+          mkdir -p "$OUT"
+          cp "$B/firmware.bin" "$B/bootloader.bin" "$B/partitions.bin" "$B/littlefs.bin" "$OUT/"
+          cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin "$OUT/"
+          # Offsets: see min_littlefs.csv (4 MB layout).
+          python -m esptool --chip esp32 merge-bin -o "$OUT/dw-mini-full-4MB.bin" \
+            0x1000 "$OUT/bootloader.bin" 0x8000 "$OUT/partitions.bin" \
+            0xe000 "$OUT/boot_app0.bin" 0x10000 "$OUT/firmware.bin" \
+            0x3d0000 "$OUT/littlefs.bin"
+          ( cd "$OUT" && sha256sum *.bin > SHA256SUMS )
+          ls -l "$OUT"
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$DW_RELEASE_TAG"
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG" || true
+          NOTES=""
+          if [ "$(git cat-file -t "refs/tags/$TAG" 2>/dev/null)" = "tag" ]; then
+            NOTES="$(git for-each-ref "refs/tags/$TAG" --format='%(contents:body)')"
+          fi
+          {
+            [ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ] && printf '%s\n\n' "$NOTES"
+            echo "**Dune Weaver Mini** (bare ESP32, 28BYJ-48 + ULN2003, no SD card)."
+            echo
+            echo "- Update over Wi-Fi from the Dune Weaver add-on (Settings, firmware), or"
+            echo "- first-time USB flash: \`esptool --chip esp32 write-flash 0x0 dw-mini-full-4MB.bin\`"
+            echo "  (erases nothing else; set Wi-Fi from the DuneWeaver-XXXX hotspot afterwards)."
+          } > "$RUNNER_TEMP/notes.md"
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          gh release create "$TAG" --title "$TAG" --latest \
+            --notes-file "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/release"/*

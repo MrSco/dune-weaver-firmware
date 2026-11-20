@@ -13,7 +13,8 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    # DW Mini fork: v*-mini.* tags are released by release-mini.yml.
+    tags: ["v*", "!v*-mini.*"]
   workflow_dispatch:
 
 permissions:
