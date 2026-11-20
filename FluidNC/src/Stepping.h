@@ -7,6 +7,10 @@
 #include "Configuration/Configurable.h"
 #include "Driver/step_engine.h"
 
+namespace MotorDrivers {
+    class MotorDriver;
+}
+
 namespace Machine {
     class Stepping : public Configuration::Configurable {
     public:
@@ -25,6 +29,16 @@ namespace Machine {
             bool dir_invert;
             bool blocked;
             bool limited;
+
+            // Non-null for motor types that generate their own step waveform
+            // instead of using step/dir pins; see assignMotorDriver().  When
+            // set, the step_pin/dir_pin fields are unused.
+            MotorDrivers::MotorDriver* driver;
+
+            // Captured from the driver at assignMotorDriver() time and called
+            // from the step ISR, so the ISR never reads a vtable from flash.
+            void (*step_fn)(MotorDrivers::MotorDriver*);
+            void (*dir_fn)(MotorDrivers::MotorDriver*, bool);
         };
         static motor_t* axis_motors[MAX_N_AXIS][MAX_MOTORS_PER_AXIS];
         static int      _n_active_axes;
@@ -68,6 +82,11 @@ namespace Machine {
         static void     setSteps(int axis, uint32_t steps) { axis_steps[axis] = steps; }
 
         static void assignMotor(int axis, int motor, int step_pin, bool step_invert, int dir_pin, bool dir_invert);
+
+        // Registers a motor that drives its own outputs rather than a step pin -
+        // step() then calls back into the driver instead of into the stepping
+        // engine.  Blocking and limiting work the same as for step/dir motors.
+        static void assignMotorDriver(int axis, int motor, MotorDrivers::MotorDriver* driver);
 
         static void reset();  // Clean up old state and start fresh
         static void beginLowLatency();
