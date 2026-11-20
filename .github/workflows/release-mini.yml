@@ -55,11 +55,13 @@ jobs:
           key: platformio-sandtable-mini-${{ runner.os }}
       - name: Build firmware and Mini filesystem image
         run: |
-          pio run -e sandtable_mini
+          # --disable-auto-clean: a second pio invocation (buildfs, with a
+          # different data dir) otherwise cleans the env and deletes firmware.bin.
+          pio run --disable-auto-clean -e sandtable_mini
           STAGE="$RUNNER_TEMP/fsdata"
           mkdir -p "$STAGE"
           cp configs/dune_weaver_mini/config.yaml FluidNC/data/favicon.ico "$STAGE/"
-          PLATFORMIO_DATA_DIR="$STAGE" pio run -e sandtable_mini -t buildfs
+          PLATFORMIO_DATA_DIR="$STAGE" pio run --disable-auto-clean -e sandtable_mini -t buildfs
       - name: Stage release assets
         run: |
           B=.pio/build/sandtable_mini
