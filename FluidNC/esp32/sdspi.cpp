@@ -19,6 +19,8 @@
 #include "esp_log.h"
 #include "wdt.h"            // disable_core0_WDT
 #include "esp_timer.h"      // esp_timer_get_time
+#include <cstdio>
+#include <sys/stat.h>       // mkdir
 
 #define CHECK_EXECUTE_RESULT(err, str)                                                                                                     \
     do {                                                                                                                                   \
@@ -237,6 +239,14 @@ static std::error_code cache_mount() {
         return esp_error::make_error_code(err);
     }
     s_cache_part = part;
+    // A freshly formatted cache has only "/".  Pre-create the directories the
+    // host lists and writes into so GET /upload?path=/patterns&list=yes and
+    // playlist uploads succeed immediately after first boot or an OTA update.
+    char dir[32];
+    snprintf(dir, sizeof(dir), "%s/patterns", base_path);
+    ::mkdir(dir, 0755);
+    snprintf(dir, sizeof(dir), "%s/playlists", base_path);
+    ::mkdir(dir, 0755);
     return {};
 }
 
